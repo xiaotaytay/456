@@ -1,0 +1,30 @@
+workflows:
+  ios-unsigned-ipa:
+    name: Build Unsigned IPA
+    environment:
+      ios_signing:
+        distribution_type: none
+      vars:
+        BUNDLE_ID: "com.dangdang.share"
+    scripts:
+      - name: Build IPA without signing
+        script: |
+          xcodebuild build \
+            -project DangDangShareIOS/DangDangShare/DangDangShare.xcodeproj \
+            -scheme DangDangShare \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER=""
+      - name: Create IPA
+        script: |
+          mkdir -p /tmp/ipa/Payload
+          cp -r build/Build/Products/Release-iphoneos/DangDangShare.app /tmp/ipa/Payload/
+          cd /tmp/ipa
+          zip -r $CM_BUILD_DIR/DangDangShare.ipa Payload
+    artifacts:
+      - DangDangShare.ipa

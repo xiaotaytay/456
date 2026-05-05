@@ -1,0 +1,167 @@
+import UIKit
+
+class OverlayManager {
+    static let shared = OverlayManager()
+    
+    var overlayWindow: UIWindow?
+    var radarView: RadarOverlayView?
+    private var isInBackground = false
+    
+    private var globalOffsetX: Float = 0
+    private var globalOffsetY: Float = 0
+    private var heroOffsetX: Float = 0
+    private var heroOffsetY: Float = 0
+    private var heroScale: Float = 1.0
+    private var monsterOffsetX: Float = 0
+    private var monsterOffsetY: Float = 0
+    private var monsterScale: Float = 1.0
+    private var monsterZoom: Float = 1.0
+    
+    private init() {}
+    
+    @MainActor
+    func updateSettings(globalX: Float, globalY: Float,
+                        heroOffsetX: Float, heroOffsetY: Float, heroScale: Float,
+                        monsterOffsetX: Float, monsterOffsetY: Float, monsterScale: Float, monsterZoom: Float) {
+        self.globalOffsetX = globalX
+        self.globalOffsetY = globalY
+        self.heroOffsetX = heroOffsetX
+        self.heroOffsetY = heroOffsetY
+        self.heroScale = heroScale
+        self.monsterOffsetX = monsterOffsetX
+        self.monsterOffsetY = monsterOffsetY
+        self.monsterScale = monsterScale
+        self.monsterZoom = monsterZoom
+        
+        PiPManager.shared.updateSettings(
+            globalX: globalX, globalY: globalY,
+            heroOffsetX: heroOffsetX, heroOffsetY: heroOffsetY, heroScale: heroScale,
+            monsterOffsetX: monsterOffsetX, monsterOffsetY: monsterOffsetY, monsterScale: monsterScale, monsterZoom: monsterZoom
+        )
+        
+        radarView?.setNeedsDisplay()
+    }
+    
+    @MainActor
+    func showOverlay() {
+        guard overlayWindow == nil else { return }
+        
+        let windowScene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first
+        guard let ws = windowScene else { return }
+        
+        let passthroughWindow = PassthroughWindow(windowScene: ws)
+        passthroughWindow.frame = ws.screen.bounds
+        passthroughWindow.windowLevel = .statusBar + 1
+        passthroughWindow.backgroundColor = .clear
+        passthroughWindow.isHidden = false
+        self.overlayWindow = passthroughWindow
+        
+        let container = PassthroughView(frame: ws.screen.bounds)
+        container.backgroundColor = .clear
+        container.isUserInteractionEnabled = true
+        passthroughWindow.rootViewController = PassthroughViewController()
+        passthroughWindow.rootViewController?.view = container
+        passthroughWindow.rootViewController?.view.backgroundColor = .clear
+        
+        let screenBounds = ws.screen.bounds
+        let overlaySide = min(screenBounds.width, screenBounds.height) * 0.4
+        let margin: CGFloat = 10
+        let defaultX = screenBounds.width - overlaySide - margin
+        let defaultY = margin + 50
+        
+        let savedX = UserDefaults.standard.object(forKey: "radar_overlay_x") as? CGFloat ?? defaultX
+        let savedY = UserDefaults.standard.object(forKey: "radar_overlay_y") as? CGFloat ?? defaultY
+        let clampedX = max(0, min(screenBounds.width - overlaySide, savedX))
+        let clampedY = max(0, min(screenBounds.height - overlaySide, savedY))
+        
+        let radar = RadarOverlayView(frame: CGRect(x: clampedX, y: clampedY, width: overlaySide, height: overlaySide))
+        radar.isUserInteractionEnabled = true
+        radar.visible = false
+        container.addSubview(radar)
+        radarView = radar
+        
+        let ms = MonsterSettings.shared
+        self.monsterOffsetX = ms.offsetX
+        self.monsterOffsetY = ms.offsetY
+        self.monsterScale = ms.scale
+        
+        let hs = HeroSettings.shared
+        self.heroOffsetX = hs.offsetX
+        self.heroOffsetY = hs.offsetY
+        self.heroScale = hs.scale
+        
+        PiPManager.shared.updateSettings(
+            globalX: globalOffsetX, globalY: globalOffsetY,
+            heroOffsetX: heroOffsetX, heroOffsetY: heroOffsetY, heroScale: heroScale,
+            monsterOffsetX: monsterOffsetX, monsterOffsetY: monsterOffsetY,
+            monsterScale: monsterScale, monsterZoom: monsterZoom
+        )
+        
+        PiPManager.shared.updateRadarView(radar)
+        PiPManager.shared.setup()
+        PiPManager.shared.startRendering()
+    }
+    
+    @MainActor
+    func hideOverlay() {
+        PiPManager.shared.stopRendering()
+        radarView?.removeFromSuperview()
+        overlayWindow?.isHidden = true
+        overlayWindow = nil
+        radarView = nil
+        isInBackground = false
+        PiPManager.shared.updateRadarView(nil)
+    }
+    
+    @MainActor
+    func enterBackground() {
+        guard overlayWindow != nil else { return }
+        isInBackground = true
+        overlayWindow?.isHidden = true
+        PiPManager.shared.startPiP()
+    }
+    
+    @MainActor
+    func enterForeground() {
+        guard overlayWindow != nil else { return }
+        isInBackground = false
+        PiPManager.shared.stopPiP()
+        overlayWindow?.isHidden = false
+        overlayWindow?.makeKey()
+    }
+    
+    @MainActor
+    func updateGameData(_ data: String) {
+        radarView?.visible = true
+        radarView?.gameDataString = data
+        PiPManager.shared.updateGameData(data)
+    }
+}
+
+class PassthroughWindow: UIWindow {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let view = super.hitTest(point, with: event)
+        if view === self || view === rootViewController?.view {
+            return nil
+        }
+        return view
+    }
+}
+
+class PassthroughViewController: UIViewController {
+    override var prefersStatusBarHidden: Bool { false }
+}
+
+class PassthroughView: UIView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        for subview in subviews.reversed() {
+            let converted = convert(point, to: subview)
+            if subview.point(inside: converted, with: event) {
+                return subview.hitTest(converted, with: event)
+            }
+        }
+        return nil
+    }
+}
