@@ -25,6 +25,7 @@ class PiPManager: NSObject {
     private var lastGameData: String = ""
     private var mapImage: UIImage?
     private var isLocked: Bool = false
+    private var isTransparentMode = false
     
     private var globalOffsetX: Float = 0
     private var globalOffsetY: Float = 0
@@ -209,6 +210,7 @@ class PiPManager: NSObject {
         displayLink?.invalidate()
         displayLink = nil
         stopSilentAudio()
+        isTransparentMode = false
         if isPiPActive {
             pipController?.stopPictureInPicture()
         }
@@ -216,6 +218,7 @@ class PiPManager: NSObject {
     
     func startPiP() {
         guard let pc = pipController, !isPiPActive else { return }
+        isTransparentMode = true
         startSilentAudio()
         if !isRendering {
             startRendering()
@@ -228,6 +231,7 @@ class PiPManager: NSObject {
     }
     
     func stopPiP() {
+        isTransparentMode = false
         if isPiPActive {
             pipController?.stopPictureInPicture()
         }
@@ -254,6 +258,19 @@ class PiPManager: NSObject {
         renderRadarToBuffer(buf)
         guard let sb = createSampleBuffer(from: buf) else { return }
         layer.enqueue(sb)
+    }
+    
+    private func captureScreenBehindPiP() -> CGImage? {
+        guard let pipWindow = pipCallViewController?.view.window else { return nil }
+        let windowID = CGWindowID(pipWindow.windowScene?.windows.first?.windowNumber ?? pipWindow.windowNumber)
+        let screenBounds = pipWindow.windowScene?.screen.bounds ?? UIScreen.main.bounds
+        let cgImage = CGWindowListCreateImage(
+            screenBounds,
+            .optionOnScreenBelowWindow,
+            windowID,
+            [.bestResolution, .boundsIgnoreFraming]
+        )
+        return cgImage
     }
     
     private func renderRadarToBuffer(_ buffer: CVPixelBuffer) {
@@ -283,12 +300,25 @@ class PiPManager: NSObject {
         ctx.translateBy(x: 0, y: h)
         ctx.scaleBy(x: 1, y: -1)
         
-        if let mapImg = mapImage {
-            ctx.interpolationQuality = .high
-            mapImg.draw(in: CGRect(x: 0, y: 0, width: w, height: h))
+        if isTransparentMode && isPiPActive {
+            if let screenCapture = captureScreenBehindPiP() {
+                ctx.interpolationQuality = .high
+                ctx.draw(screenCapture, in: CGRect(x: 0, y: 0, width: w, height: h))
+            } else if let mapImg = mapImage {
+                ctx.interpolationQuality = .high
+                mapImg.draw(in: CGRect(x: 0, y: 0, width: w, height: h))
+            } else {
+                ctx.setFillColor(UIColor(white: 0.05, alpha: 0.95).cgColor)
+                ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+            }
         } else {
-            ctx.setFillColor(UIColor(white: 0.05, alpha: 0.95).cgColor)
-            ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+            if let mapImg = mapImage {
+                ctx.interpolationQuality = .high
+                mapImg.draw(in: CGRect(x: 0, y: 0, width: w, height: h))
+            } else {
+                ctx.setFillColor(UIColor(white: 0.05, alpha: 0.95).cgColor)
+                ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+            }
         }
         
         if !lastGameData.isEmpty {
@@ -520,10 +550,10 @@ extension PiPManager: AVPictureInPictureControllerDelegate {
         Task { @MainActor in isPiPActive = true }
     }
     nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ c: AVPictureInPictureController) {
-        Task { @MainActor in isPiPActive = false }
+        Task { @MainActor in isPiPActive = false; isTransparentMode = false }
     }
     nonisolated func pictureInPictureController(_ c: AVPictureInPictureController, failedToStartPictureInPictureWithError e: Error) {
-        Task { @MainActor in isPiPActive = false }
+        Task { @MainActor in isPiPActive = false; isTransparentMode = false }
     }
     nonisolated func pictureInPictureController(_ c: AVPictureInPictureController, restoreUserInterfaceForPictureInPictureStopWithCompletionHandler h: @escaping @Sendable (Bool) -> Void) {
         h(true)
