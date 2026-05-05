@@ -261,16 +261,7 @@ class PiPManager: NSObject {
     }
     
     private func captureScreenBehindPiP() -> CGImage? {
-        guard let pipWindow = pipCallViewController?.view.window else { return nil }
-        let windowID = CGWindowID(pipWindow.windowScene?.windows.first?.windowNumber ?? pipWindow.windowNumber)
-        let screenBounds = pipWindow.windowScene?.screen.bounds ?? UIScreen.main.bounds
-        let cgImage = CGWindowListCreateImage(
-            screenBounds,
-            .optionOnScreenBelowWindow,
-            windowID,
-            [.bestResolution, .boundsIgnoreFraming]
-        )
-        return cgImage
+        return nil
     }
     
     private func renderRadarToBuffer(_ buffer: CVPixelBuffer) {
@@ -301,16 +292,8 @@ class PiPManager: NSObject {
         ctx.scaleBy(x: 1, y: -1)
         
         if isTransparentMode && isPiPActive {
-            if let screenCapture = captureScreenBehindPiP() {
-                ctx.interpolationQuality = .high
-                ctx.draw(screenCapture, in: CGRect(x: 0, y: 0, width: w, height: h))
-            } else if let mapImg = mapImage {
-                ctx.interpolationQuality = .high
-                mapImg.draw(in: CGRect(x: 0, y: 0, width: w, height: h))
-            } else {
-                ctx.setFillColor(UIColor(white: 0.05, alpha: 0.95).cgColor)
-                ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
-            }
+            ctx.setFillColor(UIColor.black.withAlphaComponent(0.1).cgColor)
+            ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
         } else {
             if let mapImg = mapImage {
                 ctx.interpolationQuality = .high
